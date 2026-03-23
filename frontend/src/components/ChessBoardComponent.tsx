@@ -1,7 +1,7 @@
 "use client";
 
 import { Chessboard } from 'react-chessboard';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface ChessBoardProps {
   fen: string;
@@ -15,20 +15,23 @@ interface ChessBoardProps {
 
 export default function ChessBoardComponent({ fen, bestMove, onPieceDrop, lastMove, winPercent, displayScore, orientation = 'white' }: ChessBoardProps) {
   const [boardWidth, setBoardWidth] = useState(600);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
-    const handleResize = () => {
-      // Scale based on screen size, max 600px
-      const parentWidth = window.innerWidth;
-      if (parentWidth < 768) {
-        setBoardWidth(parentWidth - 40);
-      } else {
-        setBoardWidth(600);
+    if (!containerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width } = entry.contentRect;
+        // The board should take the remaining width after the 44px eval bar
+        const availableWidth = Math.max(200, width - 44);
+        // Limit max size to 800px to keep it centered and professional
+        setBoardWidth(Math.min(availableWidth, 800));
       }
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize(); // Initial call
-    return () => window.removeEventListener('resize', handleResize);
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
   }, []);
 
   const customArrows = bestMove ? [
@@ -65,11 +68,11 @@ export default function ChessBoardComponent({ fen, bestMove, onPieceDrop, lastMo
   const blackPx = totalHeight - whitePx;
 
   return (
-    <div className="flex justify-center items-center w-full bg-[#262421] py-4 rounded-b-xl border-x border-b border-slate-700/50">
-      <div className="flex flex-row items-stretch bg-[#21201d] shadow-[0_30px_90px_rgba(0,0,0,0.95)] rounded-sm overflow-hidden border border-slate-800">
+    <div ref={containerRef} className="flex justify-center items-center w-full">
+      <div className="flex flex-row items-stretch bg-[#1a1a1a] shadow-[0_20px_50px_rgba(0,0,0,0.8)] rounded-xl overflow-hidden border border-white/5">
         
         {/* Evaluation Bar - Physically Calculated Segments */}
-        <div style={{ width: 44, height: totalHeight, backgroundColor: '#1a1a1a' }} className="relative flex-shrink-0 border-r border-[#222] shadow-inner flex flex-col">
+        <div style={{ width: 44, height: totalHeight, backgroundColor: '#09090b' }} className="relative flex-shrink-0 border-r border-white/5 shadow-inner flex flex-col">
           {orientation === 'white' ? (
             <>
               {/* Black segment (top) */}
@@ -117,10 +120,9 @@ export default function ChessBoardComponent({ fen, bestMove, onPieceDrop, lastMo
               position: fen,
               arrows: customArrows,
               squareStyles: currentSquareStyles,
-              onPieceDrop: onPieceDrop ? ({ sourceSquare, targetSquare, piece }) => {
-              // sourceSquare and targetSquare are the IDs like 'e2', 'e4'
+            onPieceDrop: onPieceDrop ? (sourceSquare, targetSquare, piece) => {
               if (sourceSquare && targetSquare) {
-                return onPieceDrop(sourceSquare, targetSquare, piece.pieceType);
+                return onPieceDrop(sourceSquare, targetSquare, piece);
               }
               return false;
             } : undefined,

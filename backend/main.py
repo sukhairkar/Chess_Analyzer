@@ -5,6 +5,12 @@ import asyncio
 from typing import List, Dict, Any, Optional
 
 import chess
+import chess.engine
+import chess.pgn
+import sys
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # Load ECO Database
 eco_db = {}
@@ -72,11 +78,60 @@ async def parse_pgn(request: PGNRequest):
 
 @app.websocket("/ws/analyze")
 async def websocket_endpoint(websocket: WebSocket):
+    print("WS DEBUG: WebSocket connection received on /ws/analyze")
     await websocket.accept()
+    
+    current_analysis_task = None
+    engine = None
+    
     try:
+        try:
+            print(f"DEBUG: Opening engine at {chess_engine.stockfish_path}")
+            # Use a timeout for engine startup
+            transport, engine = await asyncio.wait_for(
+                chess.engine.popen_uci(chess_engine.stockfish_path),
+                timeout=10.0
+            )
+            print("DEBUG: Engine opened successfully")
+        except asyncio.TimeoutError:
+            print("CRITICAL: Stockfish timed out during initialization!")
+            await websocket.send_json({"error": "Engine timeout", "details": "Stockfish failed to start within 10s"})
+            return
+        except Exception as e:
+            import traceback
+            print(f"CRITICAL: Failed to open Stockfish: {e}")
+            traceback.print_exc()
+            await websocket.send_json({"error": "Engine initialization failed", "details": str(e)})
+            return
+
+        async def run_analysis(fen, depth, opening_name):
+            try:
+                # Quick analysis
+                quick_results = await chess_engine.analyze_position(fen, depth=10, engine=engine)
+                await websocket.send_json({
+                    "fen": fen, 
+                    "analysis": quick_results, 
+                    "is_final": False,
+                    "openingName": opening_name
+                })
+                
+                # Deep analysis
+                deep_results = await chess_engine.analyze_position(fen, depth=depth, engine=engine)
+                await websocket.send_json({
+                    "fen": fen, 
+                    "analysis": deep_results, 
+                    "is_final": True,
+                    "openingName": opening_name
+                })
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                print(f"Analysis task error: {e}")
+
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
+            
             if "fen" in message:
                 fen = message["fen"]
                 depth = message.get("depth", 15)
@@ -85,27 +140,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 if fen in eco_db:
                     opening_name = f"{eco_db[fen]['eco']}: {eco_db[fen]['name']}"
                 
-                # Perform an initial quick analysis for immediate feedback
-                quick_results = await chess_engine.analyze_position(fen, depth=10)
-                await websocket.send_json({
-                    "fen": fen, 
-                    "analysis": quick_results, 
-                    "is_final": False,
-                    "openingName": opening_name
-                })
+                if current_analysis_task:
+                    current_analysis_task.cancel()
                 
-                # Perform a deeper analysis
-                deep_results = await chess_engine.analyze_position(fen, depth=depth)
-                await websocket.send_json({
-                    "fen": fen, 
-                    "analysis": deep_results, 
-                    "is_final": True,
-                    "openingName": opening_name
-                })
+                current_analysis_task = asyncio.create_task(run_analysis(fen, depth, opening_name))
+                
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
         print(f"WebSocket error: {e}")
+    finally:
+        if current_analysis_task:
+            current_analysis_task.cancel()
+        if engine:
+            try:
+                await engine.quit()
+            except:
+                pass
 
 @app.websocket("/ws/analyze-game")
 async def analyze_game_ws(websocket: WebSocket):

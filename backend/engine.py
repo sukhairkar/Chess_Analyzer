@@ -9,16 +9,25 @@ class ChessEngine:
     def __init__(self, stockfish_path=engine_path):
         self.stockfish_path = stockfish_path
 
-    async def analyze_position(self, fen: str, depth: int = 15):
+    async def analyze_position(self, fen: str, depth: int = 15, engine=None):
         try:
-            transport, engine = await chess.engine.popen_uci(self.stockfish_path)
+            should_close = False
+            if engine is None:
+                transport, engine = await chess.engine.popen_uci(self.stockfish_path)
+                should_close = True
+            
             board = chess.Board(fen)
             
             # Analyze the position, evaluating the top 3 lines
             info = await engine.analyse(board, chess.engine.Limit(depth=depth), multipv=3)
             
-            await engine.quit()
+            if should_close:
+                await engine.quit()
             
+            # If multipv=1, info is a dict. If multipv > 1, info is a list of dicts.
+            if isinstance(info, dict):
+                info = [info]
+                
             results = []
             for line in info:
                 score = line.get("score")
@@ -27,14 +36,16 @@ class ChessEngine:
                 
                 pv = line.get("pv", [])
                 moves = [move.uci() for move in pv]
+                actual_depth = line.get("depth", depth)
                 
                 results.append({
                     "score": eval_score, # in centipawns from White's perspective
                     "mate": mate_in,
                     "moves": moves,
-                    "bestmove": moves[0] if moves else None
+                    "bestmove": moves[0] if moves else None,
+                    "depth": actual_depth
                 })
-                
+            
             return results
         except Exception as e:
             print(f"Engine analysis error: {e}")
