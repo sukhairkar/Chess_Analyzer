@@ -2,8 +2,16 @@ import chess
 import chess.engine
 import asyncio
 import os
+import sys
 
-engine_path = os.path.join(os.path.dirname(__file__), "stockfish.exe")
+# Support custom environment variable or default to OS-specific paths
+if "STOCKFISH_PATH" in os.environ:
+    engine_path = os.environ["STOCKFISH_PATH"]
+elif sys.platform == "win32":
+    engine_path = os.path.join(os.path.dirname(__file__), "stockfish.exe")
+else:
+    # On Linux (Docker), assuming it is installed and available in PATH
+    engine_path = "stockfish"
 
 class ChessEngine:
     def __init__(self, stockfish_path=engine_path):
