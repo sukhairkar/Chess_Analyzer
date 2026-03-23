@@ -26,15 +26,30 @@ class ChessEngine:
             should_close = False
             if engine is None:
                 transport, engine = await chess.engine.popen_uci(self.stockfish_path)
+                try:
+                    await asyncio.wait_for(engine.configure({"MultiPV": 3}), timeout=2.0)
+                except:
+                    pass
                 should_close = True
             
             board = chess.Board(fen)
             
-            # Analyze the position, evaluating the top 3 lines
-            info = await engine.analyse(board, chess.engine.Limit(depth=depth), multipv=3)
+            # Use shield to prevent InvalidStateError on cancellation
+            # and ensure we stop the engine if we are cancelled
+            try:
+                analysis = await asyncio.shield(engine.analyse(board, chess.engine.Limit(depth=depth), multipv=3))
+            except asyncio.CancelledError:
+                try:
+                    # Try to stop the engine manually if we are cancelled
+                    await engine.stop()
+                except:
+                    pass
+                raise
             
             if should_close:
                 await engine.quit()
+            
+            info = analysis
             
             # If multipv=1, info is a dict. If multipv > 1, info is a list of dicts.
             if isinstance(info, dict):

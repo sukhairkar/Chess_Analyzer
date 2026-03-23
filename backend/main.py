@@ -170,35 +170,41 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.websocket("/ws/analyze-game")
 async def analyze_game_ws(websocket: WebSocket):
     await websocket.accept()
+    analysis_lock = asyncio.Lock()
     try:
         data = await websocket.receive_text()
         message = json.loads(data)
         fens = message.get("fens", [])
         depth = message.get("depth", 10)
         
-        transport, engine = await chess.engine.popen_uci(chess_engine.stockfish_path)
+        transport, engine = await asyncio.wait_for(
+            chess.engine.popen_uci(chess_engine.stockfish_path),
+            timeout=10.0
+        )
+        try:
+            await asyncio.wait_for(engine.configure({"MultiPV": 1}), timeout=2.0)
+        except:
+            pass
+            
         last_eval = 0
         last_mate = None
         
         try:
             # We need to analyze each position: START and then after MOVE 1, then after MOVE 2, etc.
-            # moves[0] is the result of applying move to fens[0].
-            # fens[1] is position AFTER moves[0].
-            
             for i in range(len(fens) - 1):
-                # Analyze board BEFORE the move (fens[i]) to find the engine's suggested best move
-                board = chess.Board(fens[i])
-                info = await engine.analyse(board, chess.engine.Limit(depth=depth))
-                best_move = info["pv"][0].uci() if "pv" in info and len(info["pv"]) > 0 else None
-                pre_eval = info.get("score").white().score(mate_score=10000) if info.get("score") else 0
-                
-                # Now analyze the position AFTER the move was played (fens[i+1])
-                # to determine the classification (blunder, best, etc.)
-                post_board = chess.Board(fens[i+1])
-                post_info = await engine.analyse(post_board, chess.engine.Limit(depth=depth))
-                post_score = post_info.get("score")
-                eval_score = post_score.white().score(mate_score=10000) if post_score else 0
-                mate_in = post_score.white().mate() if post_score and post_score.is_mate() else None
+                async with analysis_lock:
+                    # Analyze board BEFORE the move (fens[i]) to find the engine's suggested best move
+                    board = chess.Board(fens[i])
+                    info = await engine.analyse(board, chess.engine.Limit(depth=depth))
+                    best_move = info["pv"][0].uci() if "pv" in info and len(info["pv"]) > 0 else None
+                    pre_eval = info.get("score").white().score(mate_score=10000) if info.get("score") else 0
+                    
+                    # Now analyze the position AFTER the move was played (fens[i+1])
+                    post_board = chess.Board(fens[i+1])
+                    post_info = await engine.analyse(post_board, chess.engine.Limit(depth=depth))
+                    post_score = post_info.get("score")
+                    eval_score = post_score.white().score(mate_score=10000) if post_score else 0
+                    mate_in = post_score.white().mate() if post_score and post_score.is_mate() else None
                 
                 classification = None
                 is_white_turn = board.turn # True if white moved
@@ -215,7 +221,6 @@ async def analyze_game_ws(websocket: WebSocket):
                     delta = (eval_score - pre_eval) if is_white_turn else (pre_eval - eval_score)
                     
                     if mate_in is not None and last_mate is not None:
-                        # ... mate classification ...
                          if is_white_turn:
                              if mate_in > 0 and last_mate > 0 and mate_in <= last_mate: classification = "best"
                              elif mate_in < 0 and last_mate > 0: classification = "blunder"
