@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/sukhairkar/Chess_Analyzer/main/public/logo.png" alt="Chess Analyzer Logo" width="120" style="border-radius: 20px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); margin-bottom: 20px;" onerror="this.style.display='none'">
   
   # ♟️ Chess Analyzer Pro
   
