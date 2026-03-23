@@ -24,6 +24,9 @@ interface AnalysisResult {
 }
 
 export default function Home() {
+  const backendHttpUrl = process.env.NEXT_PUBLIC_BACKEND_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : '');
+  const backendWsUrl = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? `ws://${window.location.hostname}:8000` : '');
+
   const [pgnInput, setPgnInput] = useState("");
   const [moves, setMoves] = useState<Move[]>([]);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
@@ -43,7 +46,7 @@ export default function Home() {
   useEffect(() => {
     // Initialize WebSocket connection to backend
     const connectWs = () => {
-      const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/analyze`);
+      const ws = new WebSocket(`${backendWsUrl}/ws/analyze`);
       
       ws.onopen = () => {
         console.log("Connected to Engine WebSocket");
@@ -89,7 +92,7 @@ export default function Home() {
     }
     
     const fens = [initFen, ...parsedMoves.map(m => m.fen)];
-    const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/analyze-game`);
+    const ws = new WebSocket(`${backendWsUrl}/ws/analyze-game`);
     
     ws.onopen = () => {
       ws.send(JSON.stringify({ fens, depth: 10 }));
@@ -130,7 +133,7 @@ export default function Home() {
     if (!pgnInput.trim()) return;
     
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/api/parse-pgn`, {
+      const res = await fetch(`${backendHttpUrl}/api/parse-pgn`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pgn: pgnInput })
