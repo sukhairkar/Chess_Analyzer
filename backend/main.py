@@ -83,6 +83,7 @@ async def websocket_endpoint(websocket: WebSocket):
     
     current_analysis_task = None
     engine = None
+    analysis_lock = asyncio.Lock()
     
     try:
         try:
@@ -142,8 +143,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 if current_analysis_task:
                     current_analysis_task.cancel()
+                    try:
+                        await current_analysis_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
                 
-                current_analysis_task = asyncio.create_task(run_analysis(fen, depth, opening_name))
+                async def run_with_lock(f, d, o):
+                    async with analysis_lock:
+                        await run_analysis(f, d, o)
+                
+                current_analysis_task = asyncio.create_task(run_with_lock(fen, depth, opening_name))
                 
     except WebSocketDisconnect:
         print("Client disconnected")
