@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 interface ChessBoardProps {
   fen: string;
   bestMove?: string | null;
-  onPieceDrop?: (sourceSquare: string, targetSquare: string, piece: string) => boolean;
+  onPieceDrop?: (sourceSquare: string, targetSquare: string, piece: any) => boolean;
   lastMove?: { to: string, classification?: string | null } | null;
   winPercent: number;
   displayScore: string;
@@ -120,11 +120,11 @@ export default function ChessBoardComponent({ fen, bestMove, onPieceDrop, lastMo
               position: fen,
               arrows: customArrows,
               squareStyles: currentSquareStyles,
-            onPieceDrop: onPieceDrop ? (sourceSquare, targetSquare, piece) => {
-              if (sourceSquare && targetSquare) {
-                return onPieceDrop(sourceSquare, targetSquare, piece);
-              }
-              return false;
+            onPieceDrop: onPieceDrop ? ({ sourceSquare, targetSquare, piece }) => {
+                if (sourceSquare && targetSquare) {
+                  return onPieceDrop(sourceSquare, targetSquare, piece);
+                }
+                return false;
             } : undefined,
             boardStyle: { width: boardWidth, height: boardWidth },
             allowDragging: true,
