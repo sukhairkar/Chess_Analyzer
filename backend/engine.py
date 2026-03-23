@@ -10,8 +10,12 @@ if "STOCKFISH_PATH" in os.environ:
 elif sys.platform == "win32":
     engine_path = os.path.join(os.path.dirname(__file__), "stockfish.exe")
 else:
-    # On Linux (Docker), assuming it is installed and available in PATH
-    engine_path = "stockfish"
+    # On Linux (Docker), Stockfish is installed via apt-get in /usr/games/stockfish
+    # We check if it exists there, else fallback to searching in PATH
+    if os.path.exists("/usr/games/stockfish"):
+        engine_path = "/usr/games/stockfish"
+    else:
+        engine_path = "stockfish"
 
 class ChessEngine:
     def __init__(self, stockfish_path=engine_path):

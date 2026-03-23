@@ -4,6 +4,9 @@ FROM python:3.10-slim
 # Set the working directory
 WORKDIR /app
 
+# Ensure /usr/games is in PATH (where Stockfish is installed on Debian)
+ENV PATH="/usr/games:${PATH}"
+
 # Install Stockfish (Linux binary) via apt
 RUN apt-get update && apt-get install -y \
     stockfish \
