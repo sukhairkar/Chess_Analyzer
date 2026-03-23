@@ -40,8 +40,14 @@ export default function ChessBoardComponent({ fen, bestMove, onPieceDrop, lastMo
 
   const getBadgePosition = (square: string) => {
     if (!square || square.length !== 2) return { top: 0, left: 0 };
-    const fileIndex = square.charCodeAt(0) - 97;
-    const rankIndex = 8 - parseInt(square[1]);
+    let fileIndex = square.charCodeAt(0) - 97;
+    let rankIndex = 8 - parseInt(square[1]);
+    
+    if (orientation === "black") {
+      fileIndex = 7 - fileIndex;
+      rankIndex = 7 - rankIndex;
+    }
+    
     return {
       left: `${(fileIndex / 8) * 100}%`,
       top: `${(rankIndex / 8) * 100}%`,
