@@ -34,22 +34,11 @@ class ChessEngine:
             
             board = chess.Board(fen)
             
-            # Use shield to prevent InvalidStateError on cancellation
-            # and ensure we stop the engine if we are cancelled
-            try:
-                analysis = await asyncio.shield(engine.analyse(board, chess.engine.Limit(depth=depth), multipv=3))
-            except asyncio.CancelledError:
-                try:
-                    # Try to stop the engine manually if we are cancelled
-                    await engine.stop()
-                except:
-                    pass
-                raise
+            # Straightforward analysis - caller ensures no concurrent overlapping calls
+            info = await engine.analyse(board, chess.engine.Limit(depth=depth), multipv=3)
             
             if should_close:
                 await engine.quit()
-            
-            info = analysis
             
             # If multipv=1, info is a dict. If multipv > 1, info is a list of dicts.
             if isinstance(info, dict):

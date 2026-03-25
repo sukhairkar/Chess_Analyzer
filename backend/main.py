@@ -81,54 +81,73 @@ async def websocket_endpoint(websocket: WebSocket):
     print("WS DEBUG: WebSocket connection received on /ws/analyze")
     await websocket.accept()
     
-    current_analysis_task = None
     engine = None
-    analysis_lock = asyncio.Lock()
+    transport = None
+    task_queue = asyncio.Queue()
+    
+    async def worker():
+        nonlocal engine
+        while True:
+            try:
+                # Wait for next analysis request
+                item = await task_queue.get()
+                
+                # If there are more items in the queue, skip to the latest one
+                while not task_queue.empty():
+                    item = task_queue.get_nowait()
+                
+                fen, depth, opening_name = item
+                
+                # Check/Initialize engine
+                if engine is None or getattr(transport, "is_closing", lambda: True)():
+                    try:
+                        print(f"DEBUG: Initializing engine at {chess_engine.stockfish_path}")
+                        transport, engine = await asyncio.wait_for(
+                            chess.engine.popen_uci(chess_engine.stockfish_path),
+                            timeout=10.0
+                        )
+                        await engine.configure({"MultiPV": 3})
+                    except Exception as e:
+                        print(f"CRITICAL: Engine initialization failed: {e}")
+                        await websocket.send_json({"error": "Engine failed", "details": str(e)})
+                        continue
+
+                # Perform analysis
+                try:
+                    # Quick analysis
+                    results = await chess_engine.analyze_position(fen, depth=10, engine=engine)
+                    await websocket.send_json({
+                        "fen": fen, 
+                        "analysis": results, 
+                        "is_final": False,
+                        "openingName": opening_name
+                    })
+                    
+                    # Deep analysis
+                    results = await chess_engine.analyze_position(fen, depth=depth, engine=engine)
+                    await websocket.send_json({
+                        "fen": fen, 
+                        "analysis": results, 
+                        "is_final": True,
+                        "openingName": opening_name
+                    })
+                except chess.engine.EngineTerminatedError:
+                    print("ERROR: Engine terminated unexpectedly during analysis")
+                    engine = None
+                except Exception as e:
+                    print(f"Analysis error: {e}")
+                finally:
+                    task_queue.task_done()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Worker loop error: {e}")
+                await asyncio.sleep(1)
+
+    worker_task = asyncio.create_task(worker())
     
     try:
-        try:
-            print(f"DEBUG: Opening engine at {chess_engine.stockfish_path}")
-            # Use a timeout for engine startup
-            transport, engine = await asyncio.wait_for(
-                chess.engine.popen_uci(chess_engine.stockfish_path),
-                timeout=10.0
-            )
-            print("DEBUG: Engine opened successfully")
-        except asyncio.TimeoutError:
-            print("CRITICAL: Stockfish timed out during initialization!")
-            await websocket.send_json({"error": "Engine timeout", "details": "Stockfish failed to start within 10s"})
-            return
-        except Exception as e:
-            import traceback
-            print(f"CRITICAL: Failed to open Stockfish: {e}")
-            traceback.print_exc()
-            await websocket.send_json({"error": "Engine initialization failed", "details": str(e)})
-            return
-
-        async def run_analysis(fen, depth, opening_name):
-            try:
-                # Quick analysis
-                quick_results = await chess_engine.analyze_position(fen, depth=10, engine=engine)
-                await websocket.send_json({
-                    "fen": fen, 
-                    "analysis": quick_results, 
-                    "is_final": False,
-                    "openingName": opening_name
-                })
-                
-                # Deep analysis
-                deep_results = await chess_engine.analyze_position(fen, depth=depth, engine=engine)
-                await websocket.send_json({
-                    "fen": fen, 
-                    "analysis": deep_results, 
-                    "is_final": True,
-                    "openingName": opening_name
-                })
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                print(f"Analysis task error: {e}")
-
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
@@ -141,26 +160,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 if fen in eco_db:
                     opening_name = f"{eco_db[fen]['eco']}: {eco_db[fen]['name']}"
                 
-                if current_analysis_task:
-                    current_analysis_task.cancel()
-                    try:
-                        await current_analysis_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                
-                async def run_with_lock(f, d, o):
-                    async with analysis_lock:
-                        await run_analysis(f, d, o)
-                
-                current_analysis_task = asyncio.create_task(run_with_lock(fen, depth, opening_name))
+                # Just add to queue - worker will handle the rest sequentially
+                await task_queue.put((fen, depth, opening_name))
                 
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
-        if current_analysis_task:
-            current_analysis_task.cancel()
+        worker_task.cancel()
         if engine:
             try:
                 await engine.quit()
